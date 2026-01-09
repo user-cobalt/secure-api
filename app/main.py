@@ -1,11 +1,14 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from datetime import timedelta
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-# Use relative imports since main.py is inside the 'app' package
+
 import models
 import  schemas
 import  database
@@ -19,9 +22,36 @@ from auth import (
     require_admin
 )
 
+from middleware import SecurityHeadersMiddleware
+
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Secure API Template")
+
+# ====== MIDDLEWARE ============
+
+limiter = Limiter(key_func =get_remote_address)
+app.state.limiter = limiter
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Try again later."}
+)
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=["http://localhost:3000"],
+	allow_credentials=True,
+	allow_methods=["*"],
+	allow_headers=["*"],
+)
+
+
 # ============== AUTH ENDPOINTS ==============
 
 @app.post("/register", response_model=schemas.User)
