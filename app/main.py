@@ -1,18 +1,22 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+
 from typing import List
 from datetime import timedelta
 
 # Use relative imports since main.py is inside the 'app' package
-from . import models, schemas, database
-from .database import engine, get_db
-from .auth import (
+import models
+import  schemas
+import  database
+from database import engine, get_db
+from auth import (
     get_password_hash,
     verify_password,
     create_access_token,
     get_current_active_user,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+    require_admin
 )
 
 models.Base.metadata.create_all(bind=engine)
@@ -152,3 +156,44 @@ def delete_task(
     db.delete(db_task)
     db.commit()
     return {"message": "Task deleted successfully"}
+
+# ============== ADMIN ENDPOINTS ==============
+
+from auth import require_admin
+
+@app.get("/admin/tasks/", response_model=List[schemas.Task])
+def read_all_tasks(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin)
+):
+    """Admin only: Get all tasks from all users"""
+    tasks = db.query(models.Task).offset(skip).limit(limit).all()
+    return tasks
+
+@app.get("/admin/users/", response_model=List[schemas.User])
+def read_all_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin)
+):
+    """Admin only: Get all users"""
+    users = db.query(models.User).offset(skip).limit(limit).all()
+    return users
+
+@app.post("/admin/users/{user_id}/promote")
+def promote_to_admin(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_admin)
+):
+    """Admin only: Promote a user to admin"""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.role = "admin"
+    db.commit()
+    return {"message": f"User {user.username} promoted to admin"}
